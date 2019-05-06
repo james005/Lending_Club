@@ -1,0 +1,158 @@
+---
+title: "Lending Club Report"
+author: "Jakub Kubajek"
+date: "`r as.character(as.Date(lubridate::ymd_hms(Sys.time())))`"
+output:
+  html_document:
+    toc: true
+    toc_depth: 2
+    toc_float: true
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+	echo = FALSE,
+	message = FALSE,
+	warning = FALSE,
+	cashe = TRUE,
+	dev="png", dev.args=list(type="cairo"), dpi = 300
+)
+```
+
+```{r echo = FALSE}
+# Libraries
+library(tidyr)
+library(dplyr)
+library(ggplot2)
+library(DT)
+library(knitr)
+
+# Directory
+WORKING_DIR <- "/home/rstudio/"
+
+setwd(WORKING_DIR)
+options(stringsAsFactors = F)
+
+# Data
+load("Lending_Club/Results/Metrics.RData")
+load("Lending_Club/Results/xgb_tunning.RData")
+load("Lending_Club/Results/xgb_tunning.RData")
+load("Data/Lending_Club/Plots.RData")
+
+# Functions
+kexpand <- function(wt, ht, cat) {
+  cat(knitr::knit(text = knitr::knit_expand(text = 
+     sprintf("```{r %s, echo = FALSE, fig.height=%s, fig.width=%s, fig.align = 'center'}\nprint(plot_new)\n```", cat, ht, wt)
+  )))}
+
+knit_table <- function(i){
+    cat(knitr::knit(text = "```{r %s, echo = FALSE, message = FALSE}\ndatatable(res_DF, rownames = FALSE, options = list(pageLength = 10, scrollX=T), escape = F)\n```", i, quiet = T))
+}
+
+
+```
+
+#Lending Club
+Lending Club is an online peer-to-peer lending platform, operating since 2007. It enables borrowers to lend between 1,000 and 40,000 USD. The standard loan period is three years. Investors can search and browse the loan listings on Lending Club website and select loans that they want to invest in based on the information supplied about the borrower, amount of loan, loan grade, and loan purpose. Investors make money from interest. LendingClub makes money by charging borrowers an origination fee and investors a service fee.
+
+Since loans issued on Lending Club are not secure, investors need to predict the future performance of particular borrowers. The aim of this analysis is to build a model predicting whether a particular loan will not be paid back (will default). As default loans were marked those with status "Charged off", "Default", "Does not meet the credit policy. Status: Charged Off" or "Late (31-120 days)".
+
+#Dataset
+Dataset provided by Lending Club on the Kaggle platform consists of 145 variables, however, some of these variables have a high percentage of missing values. There are also 3 columns fully empty: id, member_id and url.
+
+The provided dataset is highly unbalanced - there are only approximately 12.6% of default loans. To take this into account I downsampled the training data so that there is the same percentage of default as non-default loans.
+
+The purpose of most loans is the consolidation of other debts. The number of issued loans per year grown constantly since the launch of the platform.
+
+
+```{r , echo=FALSE,  out.width = '80%', fig.align = 'center'}
+knitr::include_graphics(paste0(WORKING_DIR, "Lending_Club/Plots/default_ratio.png"))
+```
+
+###Timeline
+```{r , echo=FALSE,  out.width = '100%', fig.align = 'center'}
+knitr::include_graphics(paste0(WORKING_DIR, "Lending_Club/Plots/years.png"))
+```
+
+###Purposes
+```{r , echo=FALSE,  out.width = '100%', fig.align = 'center'}
+knitr::include_graphics(paste0(WORKING_DIR, "Lending_Club/Plots/purpose.png"))
+```
+
+###Grades
+```{r , echo=FALSE,  out.width = '100%', fig.align = 'center'}
+knitr::include_graphics(paste0(WORKING_DIR, "Lending_Club/Plots/grades.png"))
+```
+
+###Overview of main dependencies
+```{r , echo=FALSE,  out.width = '100%', fig.align = 'center'}
+knitr::include_graphics(paste0(WORKING_DIR, "Lending_Club/Plots/rpart.png"))
+```
+
+#Dataset modifications
+Most of the categorical variables I split into binary columns, however, I omitted at least one level. I created dummy variables only for categories that include at least 1% of observations. In addition, I decided that the reference group (observations with zeros in all dummy variables for a particular categorical column) should include at least 5%. If the initial reference group (consisting of categories that include less than 1% of observations) was smaller than assumed cut-off, I added to the reference group the largest category.
+
+I try to delete variables which are linked directly to being late with payments, as the hardship flag which signifies that a borrower faced unexpected life event and was enabled to temporarily make interest-only payments. Furthermore, I deleted any variable that has more than 90% of missing observations. I also filtered out columns with are colinear with others (when there was a pair of colinear variables I left only one variable, deciding by alphabetical order). 
+
+To take into the model the fact that with the flow of time probability of not paying back the loan is higher I calculated additional variable which stands for the number of months from the issue date till the month of the generation of the dataset. In addition, I included nonlinear modifications (logarithm and power of 2) of this variable, DTI and interest rate.
+
+I also included information about sub-grade instead of a sole grade, because sub-grade is more precise and contains more levels.
+
+```{r , echo=FALSE,  out.width = '100%', fig.align = 'center'}
+knitr::include_graphics(paste0(WORKING_DIR, "Lending_Club/Plots/distributions.png"))
+```
+
+#Models
+In this analysis, I created four different models and the fifth which is an average of three the best models. I used **logistic regression**, logistic regression with **elastic net** regularisation, **random forest** and extreme gradient boosting (**XGBoost**). 
+
+To select the best parameters of the elastic net, random forest and XGBoost I performed the cross-validation with the use of 10% of the training set.
+
+###Tuning of Elastic Net
+```{r , echo=FALSE,  out.width = '100%', fig.align = 'center'}
+knitr::include_graphics(paste0(WORKING_DIR, "Lending_Club/Plots/glmnTuned.png"))
+```
+
+###Tuning of random forest
+```{r , echo=FALSE,  out.width = '100%', fig.align = 'center'}
+knitr::include_graphics(paste0(WORKING_DIR, "Lending_Club/Plots/rfTuned.png"))
+```
+
+###Tuning of XGBoost
+```{r echo = FALSE, message = FALSE, fig.width=8, fig.height=6, fig.align = 'center', results='asis'}
+    
+res_DF <- xgb_performance
+knit_table(1)
+   
+```
+
+
+#Results
+All applied models have similar predictive performance, however, the highest AUC value acquired XGBoost while the highest recall (percentage of correctly pointed out actual defaults) had the random forest model. 
+
+Additionally, I assessed the predictive performance of the Ensemble model prediction which is built by averaging predictions of logistic regression, random forest and XGBoost. It has only the slightly smaller value of AUC than XGBoost and the same recall as random forest, what in my opinion makes this model the best for predicting which loan will not be paid back. If I were to choose only one model of those presented, I would certainly opt for the **Ensemble model**, because usually, investors are primarily interested in avoiding losses associated with defaults and the Ensemble model provides the highest recall value, keeping AUC relatively high.
+
+###Performance metrics
+```{r echo = FALSE, message = FALSE, fig.width=8, fig.height=6, fig.align = 'center', results='asis'}
+    
+
+cat("  \n")
+cat("  \n")
+res_DF <- metrics_table
+knit_table(2)
+
+cat("  \n")
+cat("  \n")
+   
+```
+
+
+###ROC curves of single models
+
+```{r , echo=FALSE, out.width = '100%', fig.align = 'center'}
+knitr::include_graphics(paste0(WORKING_DIR, "Lending_Club/Plots/AUC_plots.png"))
+```
+
+###ROC curve of ensemble model
+```{r , echo=FALSE,  out.width = '50%', fig.align = 'center'}
+knitr::include_graphics(paste0(WORKING_DIR, "Lending_Club/Plots/AUC_ensemble.png"))
+```
